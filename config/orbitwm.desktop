@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=OrbitWM
+Comment=Tiling window manager
+Exec=/usr/local/bin/orbitwm
+TryExec=/usr/local/bin/orbitwm
+Type=XSession
+DesktopNames=OrbitWM
