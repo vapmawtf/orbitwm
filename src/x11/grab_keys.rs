@@ -13,6 +13,7 @@ pub fn grab_keys<C: Connection>(conn: &C, root: Window, config: &Config) {
         &config.keybinds.focus_next,
         &config.keybinds.focus_prev,
         &config.keybinds.terminal,
+        &config.keybinds.toggle_floating,
         &config.keybinds.workspace_switch,
         &config.keybinds.workspace_move,
     ];

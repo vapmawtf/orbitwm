@@ -3,13 +3,16 @@ border_width = 2
 border_color = "#444444"
 border_focus_color = "#8888ff"
 master_ratio = 0.5
-terminal = "st"
+terminal = "alacritty"
 
 autostart = [
     "picom --daemon",
     "feh --bg-fill /home/vapma/.walls/53db35e5cb12dd475517003dbf72440b.jpg ",
+    "xsetroot -cursor_name left_ptr",
+    "xset s off -dpms",
     "nm-applet --indicator",
     "blueman-applet",
+    "dunst",
     "/home/vapma/.config/polybar/launch.sh",
 ]
 
@@ -21,6 +24,7 @@ focus_next = "super+j"
 focus_prev = "super+k"
 terminal = "super+return"
 restart = "super+shift+r"
+toggle_floating = "super+f"
 workspace_switch = "super"
 workspace_move = "super+shift"
 

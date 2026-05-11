@@ -15,9 +15,7 @@ cp ./config/polybar/config.ini ~/.config/polybar/config.ini
 cp ./config/polybar/launch.sh ~/.config/polybar/launch.sh
 chmod +x ~/.config/polybar/launch.sh
 
-echo "🛑 Stopping OrbitWM..."
-pkill orbitwm 2>/dev/null || true
-sleep 0.5
 echo "📦 Installing OrbitWM..."
-sudo cp ./target/release/orbitwm /usr/local/bin/orbitwm
+sudo install -m 0755 ./target/release/orbitwm /usr/local/bin/orbitwm.new
+sudo mv -f /usr/local/bin/orbitwm.new /usr/local/bin/orbitwm
 echo "✅ OrbitWM updated successfully!"

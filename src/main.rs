@@ -3,6 +3,14 @@ mod wm;
 mod x11;
 
 fn main() {
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "-v" || arg == "--version")
+    {
+        println!("orbitwm {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let config = config::Config::load();
 
     // autostart

@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use x11rb::{connection::Connection, protocol::xproto::*, rust_connection::RustConnection};
+use x11rb::{protocol::xproto::*, rust_connection::RustConnection};
 
 use crate::wm::bar::{Align, Widget};
 

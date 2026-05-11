@@ -11,7 +11,12 @@ pub fn apply_layout<C: Connection>(
     screen_h: u32,
     config: &Config,
 ) {
-    let wins: Vec<Window> = wm.windows().iter().copied().collect();
+    let wins: Vec<Window> = wm
+        .windows()
+        .iter()
+        .copied()
+        .filter(|win| !wm.is_floating(*win))
+        .collect();
     let count = wins.len();
     if count == 0 {
         return;

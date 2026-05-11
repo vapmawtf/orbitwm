@@ -69,6 +69,12 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 let class_str = get_window_class(&conn, e.window);
                 let type_vals = get_window_type(&conn, e.window, &atoms);
                 let is_dock = type_vals.contains(&atoms.net_wm_window_type_dock);
+                // Basic heuristic: keep dialogs/popups from being tiled.
+                // (Proper EWMH window-type atoms can be added later.)
+                let class_lc = class_str.to_lowercase();
+                let is_floating = class_lc.contains("dialog")
+                    || class_lc.contains("utility")
+                    || class_lc.contains("popup");
                 let is_polybar = class_str.to_lowercase().contains("polybar");
 
                 eprintln!(
@@ -98,8 +104,12 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 std::thread::sleep(std::time::Duration::from_millis(5));
 
                 // Then add to state and apply layout
-                state.add(e.window);
-                wm::layout::apply_layout(&conn, state, width, height, config);
+                if is_floating {
+                    state.add_floating(e.window);
+                } else {
+                    state.add(e.window);
+                    wm::layout::apply_layout(&conn, state, width, height, config);
+                }
                 conn.flush().ok();
             }
 
@@ -116,6 +126,18 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                             .width(e.width as u32)
                             .height(e.height as u32)
                             .border_width(e.border_width as u32),
+                    )
+                    .ok();
+                } else if state.is_floating(e.window) {
+                    conn.configure_window(
+                        e.window,
+                        &ConfigureWindowAux::default()
+                            .x(e.x as i32)
+                            .y(e.y as i32)
+                            .width(e.width as u32)
+                            .height(e.height as u32)
+                            .border_width(e.border_width as u32)
+                            .stack_mode(e.stack_mode),
                     )
                     .ok();
                 } else if in_tiling {
@@ -149,7 +171,8 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 if state.docks.contains(&e.event) {
                     continue;
                 }
-                let tracked = state.workspaces.iter().any(|ws| ws.contains(&e.event));
+                let tracked = state.workspaces.iter().any(|ws| ws.contains(&e.event))
+                    || state.is_floating(e.event);
                 if tracked {
                     state.focused = Some(e.event);
                     conn.set_input_focus(InputFocus::POINTER_ROOT, e.event, x11rb::CURRENT_TIME)
@@ -172,6 +195,10 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 if state.docks.contains(&e.window) {
                     continue;
                 }
+                if state.is_floating(e.window) {
+                    state.remove(e.window);
+                    continue;
+                }
                 let in_current = state.workspaces[state.current].contains(&e.window);
                 eprintln!("UnmapNotify: win={} in_current={}", e.window, in_current);
                 if in_current {
@@ -184,6 +211,10 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
             Event::DestroyNotify(e) => {
                 if state.docks.contains(&e.window) {
                     state.docks.retain(|&w| w != e.window);
+                    continue;
+                }
+                if state.is_floating(e.window) {
+                    state.remove(e.window);
                     continue;
                 }
                 let was_tracked = state.workspaces.iter().any(|ws| ws.contains(&e.window));

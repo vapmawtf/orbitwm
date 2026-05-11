@@ -38,12 +38,12 @@ pub fn handle_key<C: Connection>(
 
     if let Some(idx) = keycode_to_workspace(keycode) {
         if modmask == move_mod {
-            wm.move_to_workspace(conn, idx);
+            let _ = wm.move_to_workspace(conn, idx);
             apply_layout(conn, wm, width, height, config);
             conn.flush().unwrap();
             return;
         } else if modmask == switch_mod {
-            wm.switch_workspace(conn, root, atoms, idx);
+            let _ = wm.switch_workspace(conn, root, atoms, idx);
             apply_layout(conn, wm, width, height, config);
             conn.flush().unwrap();
             return;
@@ -66,11 +66,23 @@ pub fn handle_key<C: Connection>(
             conn.flush().unwrap();
         }
     } else if matches_key(modmask, keycode, &kb.focus_next) {
-        wm.focus_next(conn);
+        let _ = wm.focus_next(conn);
         conn.flush().unwrap();
     } else if matches_key(modmask, keycode, &kb.focus_prev) {
-        wm.focus_prev(conn);
+        let _ = wm.focus_prev(conn);
         conn.flush().unwrap();
+    } else if matches_key(modmask, keycode, &kb.toggle_floating) {
+        if let Some(win) = wm.focused.or_else(|| wm.focused_or_first().copied()) {
+            if wm.is_floating(win) {
+                wm.floating.remove(&win);
+                wm.add(win);
+                apply_layout(conn, wm, width, height, config);
+            } else {
+                wm.windows_mut().retain(|&w| w != win);
+                wm.add_floating(win);
+            }
+            conn.flush().unwrap();
+        }
     } else if matches_key(modmask, keycode, &kb.terminal) {
         spawn_cmd(
             &config.terminal,
@@ -115,7 +127,7 @@ fn handle_custom<C: Connection>(
             "workspace" => {
                 if let Ok(idx) = arg.parse::<usize>() {
                     if idx >= 1 {
-                        wm.switch_workspace(conn, root, atoms, idx - 1);
+                        let _ = wm.switch_workspace(conn, root, atoms, idx - 1);
                         apply_layout(conn, wm, width, height, config);
                         conn.flush().unwrap();
                     }
@@ -125,7 +137,7 @@ fn handle_custom<C: Connection>(
             "move_to_workspace" => {
                 if let Ok(idx) = arg.parse::<usize>() {
                     if idx >= 1 {
-                        wm.move_to_workspace(conn, idx - 1);
+                        let _ = wm.move_to_workspace(conn, idx - 1);
                         apply_layout(conn, wm, width, height, config);
                         conn.flush().unwrap();
                     }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use x11rb::{CURRENT_TIME, connection::Connection, protocol::xproto::*};
 
 const WORKSPACE_COUNT: usize = 9;
@@ -7,6 +8,7 @@ pub struct WMState {
     pub current: usize,
     pub focused: Option<Window>,
     pub docks: Vec<Window>,
+    pub floating: HashSet<Window>,
 }
 
 impl Default for WMState {
@@ -16,6 +18,7 @@ impl Default for WMState {
             current: 0,
             focused: None,
             docks: Vec::new(),
+            floating: HashSet::new(),
         }
     }
 }
@@ -40,10 +43,19 @@ impl WMState {
         self.windows_mut().push(win);
     }
 
+    pub fn add_floating(&mut self, win: Window) {
+        self.floating.insert(win);
+    }
+
+    pub fn is_floating(&self, win: Window) -> bool {
+        self.floating.contains(&win)
+    }
+
     pub fn remove(&mut self, win: Window) {
         for ws in self.workspaces.iter_mut() {
             ws.retain(|&w| w != win);
         }
+        self.floating.remove(&win);
         if self.focused == Some(win) {
             self.focused = self.windows().first().copied();
         }

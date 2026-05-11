@@ -72,6 +72,7 @@ pub struct KeybindsConfig {
     pub focus_prev: String,
     pub terminal: String,
     pub restart: String,
+    pub toggle_floating: String,
     pub workspace_switch: String,
     pub workspace_move: String,
 }
@@ -110,6 +111,7 @@ impl Default for KeybindsConfig {
             focus_prev: "super+k".to_string(),
             terminal: "super+return".to_string(),
             restart: "super+shift+r".to_string(),
+            toggle_floating: "super+f".to_string(),
             workspace_switch: "super".to_string(),
             workspace_move: "super+shift".to_string(),
         }
