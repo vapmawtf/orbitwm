@@ -14,7 +14,6 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
     let root = screen.root;
     let width = screen.width_in_pixels as u32;
     let height = screen.height_in_pixels as u32;
-
     let atoms = Atoms::init(&conn);
 
     conn.change_window_attributes(
@@ -24,79 +23,160 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 | EventMask::SUBSTRUCTURE_NOTIFY
                 | EventMask::PROPERTY_CHANGE
                 | EventMask::KEY_PRESS
-                | EventMask::ENTER_WINDOW,
+                | EventMask::ENTER_WINDOW
+                | EventMask::STRUCTURE_NOTIFY,
         ),
     )
     .unwrap();
 
     grab_keys(&conn, root, config);
-
     ewmh::set_number_of_desktops(&conn, root, &atoms, 9);
     ewmh::set_current_desktop(&conn, root, &atoms, 0);
-
     conn.flush().unwrap();
 
     loop {
-        let event = conn.wait_for_event().unwrap();
+        let event = match conn.wait_for_event() {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("X connection error: {}", e);
+                break;
+            }
+        };
 
         match event {
             Event::MapRequest(e) => {
-                let window_type = conn
-                    .get_property(
-                        false,
-                        e.window,
-                        atoms.net_wm_window_type,
-                        AtomEnum::ATOM,
-                        0,
-                        32,
-                    )
-                    .unwrap()
-                    .reply()
-                    .unwrap();
+                if state.docks.contains(&e.window) {
+                    conn.map_window(e.window).ok();
+                    conn.flush().ok();
+                    continue;
+                }
 
-                let is_dock = window_type
-                    .value32()
-                    .map(|mut v| v.any(|a| a == atoms.net_wm_window_type_dock))
-                    .unwrap_or(false);
+                let class_str = get_window_class(&conn, e.window);
+                let type_vals = get_window_type(&conn, e.window, &atoms);
+                let is_dock = type_vals.contains(&atoms.net_wm_window_type_dock);
+                let is_polybar = class_str.to_lowercase().contains("polybar");
 
-                if is_dock {
+                eprintln!(
+                    "MapRequest: win={} class='{}' type={:?}",
+                    e.window, class_str, type_vals
+                );
+
+                if is_dock || is_polybar {
                     state.add_dock(e.window);
-                    conn.map_window(e.window).unwrap();
-                    conn.flush().unwrap();
+                    conn.map_window(e.window).ok();
+                    conn.flush().ok();
                     continue;
                 }
 
                 conn.change_window_attributes(
                     e.window,
-                    &ChangeWindowAttributesAux::default().event_mask(EventMask::ENTER_WINDOW),
+                    &ChangeWindowAttributesAux::default()
+                        .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY),
                 )
-                .unwrap();
+                .ok();
 
-                conn.map_window(e.window).unwrap();
+                conn.map_window(e.window).ok();
                 state.add(e.window);
                 wm::layout::apply_layout(&conn, state, width, height, config);
-                conn.flush().unwrap();
+                conn.flush().ok();
+            }
+
+            Event::ConfigureRequest(e) => {
+                let is_dock = state.docks.contains(&e.window);
+                let in_tiling = state.workspaces[state.current].contains(&e.window);
+
+                if is_dock {
+                    conn.configure_window(
+                        e.window,
+                        &ConfigureWindowAux::default()
+                            .x(e.x as i32)
+                            .y(e.y as i32)
+                            .width(e.width as u32)
+                            .height(e.height as u32)
+                            .border_width(e.border_width as u32),
+                    )
+                    .ok();
+                } else if in_tiling {
+                    conn.configure_window(
+                        e.window,
+                        &ConfigureWindowAux::default()
+                            .x(e.x as i32)
+                            .y(e.y as i32)
+                            .width(e.width as u32)
+                            .height(e.height as u32),
+                    )
+                    .ok();
+                    wm::layout::apply_layout(&conn, state, width, height, config);
+                } else {
+                    conn.configure_window(
+                        e.window,
+                        &ConfigureWindowAux::default()
+                            .x(e.x as i32)
+                            .y(e.y as i32)
+                            .width(e.width as u32)
+                            .height(e.height as u32)
+                            .border_width(e.border_width as u32)
+                            .stack_mode(e.stack_mode),
+                    )
+                    .ok();
+                }
+                conn.flush().ok();
             }
 
             Event::EnterNotify(e) => {
-                if e.event != root && !state.docks.contains(&e.event) {
+                if state.docks.contains(&e.event) {
+                    continue;
+                }
+                let tracked = state.workspaces.iter().any(|ws| ws.contains(&e.event));
+                if tracked {
                     state.focused = Some(e.event);
                     conn.set_input_focus(InputFocus::POINTER_ROOT, e.event, x11rb::CURRENT_TIME)
-                        .unwrap();
-                    conn.flush().unwrap();
+                        .ok();
+                    conn.flush().ok();
+                }
+            }
+
+            Event::MapNotify(e) => {
+                if e.window == 0 || state.docks.contains(&e.window) {
+                    continue;
+                }
+                if state.workspaces[state.current].contains(&e.window) {
+                    wm::layout::apply_layout(&conn, state, width, height, config);
+                    conn.flush().ok();
                 }
             }
 
             Event::UnmapNotify(e) => {
-                state.remove(e.window);
-                wm::layout::apply_layout(&conn, state, width, height, config);
-                conn.flush().unwrap();
+                if state.docks.contains(&e.window) {
+                    continue;
+                }
+                let in_current = state.workspaces[state.current].contains(&e.window);
+                eprintln!("UnmapNotify: win={} in_current={}", e.window, in_current);
+                if in_current {
+                    state.remove(e.window);
+                    wm::layout::apply_layout(&conn, state, width, height, config);
+                    conn.flush().ok();
+                }
             }
 
             Event::DestroyNotify(e) => {
-                state.remove(e.window);
-                wm::layout::apply_layout(&conn, state, width, height, config);
-                conn.flush().unwrap();
+                if state.docks.contains(&e.window) {
+                    state.docks.retain(|&w| w != e.window);
+                    continue;
+                }
+                let was_tracked = state.workspaces.iter().any(|ws| ws.contains(&e.window));
+                let was_in_current = state.workspaces[state.current].contains(&e.window);
+                eprintln!(
+                    "DestroyNotify: win={} in_current={}",
+                    e.window, was_in_current
+                );
+                if was_tracked {
+                    state.remove(e.window);
+                    if was_in_current {
+                        wm::layout::apply_layout(&conn, state, width, height, config);
+                        conn.flush().ok();
+                    }
+                }
             }
 
             Event::KeyPress(e) => {
@@ -113,4 +193,38 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
             _ => {}
         }
     }
+}
+
+fn get_window_class<C: Connection>(conn: &C, window: Window) -> String {
+    let atom = match conn
+        .intern_atom(false, b"WM_CLASS")
+        .ok()
+        .and_then(|c| c.reply().ok())
+    {
+        Some(r) => r.atom,
+        None => return String::new(),
+    };
+    match conn
+        .get_property(false, window, atom, AtomEnum::STRING, 0, 64)
+        .ok()
+        .and_then(|c| c.reply().ok())
+    {
+        Some(r) => String::from_utf8_lossy(&r.value).to_string(),
+        None => String::new(),
+    }
+}
+
+fn get_window_type<C: Connection>(conn: &C, window: Window, atoms: &Atoms) -> Vec<u32> {
+    conn.get_property(
+        false,
+        window,
+        atoms.net_wm_window_type,
+        AtomEnum::ATOM,
+        0,
+        32,
+    )
+    .ok()
+    .and_then(|c| c.reply().ok())
+    .and_then(|r| r.value32().map(|v| v.collect()))
+    .unwrap_or_default()
 }

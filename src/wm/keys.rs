@@ -5,7 +5,19 @@ use crate::wm::layout::apply_layout;
 use crate::wm::state::WMState;
 use crate::x11::atoms::Atoms;
 
-pub const MOD_KEY: u16 = 0x0040;
+use std::sync::OnceLock;
+
+static MOD_KEY: OnceLock<u16> = OnceLock::new();
+
+pub fn get_mod_key() -> u16 {
+    *MOD_KEY.get_or_init(|| {
+        if std::env::var("DEBUG").as_deref() == Ok("1") {
+            u16::from(ModMask::M1) // LAlt
+        } else {
+            0x0040 // Super
+        }
+    })
+}
 
 pub fn handle_key<C: Connection>(
     conn: &C,
@@ -65,7 +77,6 @@ pub fn handle_key<C: Connection>(
             &std::env::var("DISPLAY").unwrap_or(":0".to_string()),
         );
     } else {
-        // custom keybindy
         handle_custom(
             conn, wm, modmask, keycode, root, width, height, config, atoms,
         );
@@ -151,16 +162,21 @@ fn spawn_cmd(cmd: &str, display: &str) {
     let Some((&bin, args)) = parts.split_first() else {
         return;
     };
+    let xauth = std::env::var("XAUTHORITY").ok();
     std::thread::spawn({
         let bin = bin.to_string();
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let display = display.to_string();
+        let xauth = xauth.clone();
         move || {
-            std::process::Command::new(&bin)
-                .args(&args)
-                .env("DISPLAY", &display)
-                .spawn()
-                .ok();
+            let mut cmd = std::process::Command::new(&bin);
+            cmd.args(&args).env("DISPLAY", &display);
+
+            if let Some(xauth) = xauth {
+                cmd.env("XAUTHORITY", xauth);
+            }
+
+            cmd.spawn().ok();
         }
     });
 }
@@ -176,7 +192,7 @@ pub(crate) fn parse_binding(binding: &str) -> (u16, u8) {
 
     for part in binding.split('+') {
         match part.trim().to_lowercase().as_str() {
-            "super" | "mod4" => modmask |= MOD_KEY,
+            "super" | "mod4" => modmask |= get_mod_key(),
             "shift" => modmask |= u16::from(ModMask::SHIFT),
             "ctrl" | "control" => modmask |= u16::from(ModMask::CONTROL),
             "alt" | "mod1" => modmask |= u16::from(ModMask::M1),
@@ -191,7 +207,7 @@ fn parse_modmask(s: &str) -> u16 {
     let mut mask: u16 = 0;
     for part in s.split('+') {
         match part.trim().to_lowercase().as_str() {
-            "super" | "mod4" => mask |= MOD_KEY,
+            "super" | "mod4" => mask |= get_mod_key(),
             "shift" => mask |= u16::from(ModMask::SHIFT),
             "ctrl" | "control" => mask |= u16::from(ModMask::CONTROL),
             "alt" | "mod1" => mask |= u16::from(ModMask::M1),

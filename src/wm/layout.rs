@@ -59,14 +59,17 @@ pub fn apply_layout<C: Connection>(
 }
 
 fn place<C: Connection>(conn: &C, win: Window, x: u32, y: u32, w: u32, h: u32, config: &Config) {
-    let _ = conn.configure_window(
+    let bw = config.border_width;
+
+    conn.configure_window(
         win,
         &ConfigureWindowAux::default()
             .x(x as i32)
             .y(y as i32)
-            .width(w.saturating_sub(config.border_width * 2))
-            .height(h.saturating_sub(config.border_width * 2))
-            .border_width(config.border_width)
+            .width(w.saturating_sub(bw * 2))
+            .height(h.saturating_sub(bw * 2))
+            .border_width(bw)
             .stack_mode(StackMode::ABOVE),
-    );
+    )
+    .ok();
 }

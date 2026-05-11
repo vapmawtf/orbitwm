@@ -34,18 +34,29 @@ impl WMState {
     }
 
     pub fn add(&mut self, win: Window) {
-        if !self.windows().contains(&win) {
-            self.windows_mut().push(win);
+        if self.contains(win) {
+            return;
         }
+
+        self.windows_mut().push(win);
     }
 
     pub fn remove(&mut self, win: Window) {
         for ws in self.workspaces.iter_mut() {
             ws.retain(|&w| w != win);
         }
+
         if self.focused == Some(win) {
-            self.focused = self.workspaces[self.current].first().copied();
+            self.focused = self.windows().first().copied();
         }
+    }
+
+    pub fn contains(&self, win: Window) -> bool {
+        self.workspaces.iter().any(|ws| ws.contains(&win))
+    }
+
+    pub fn is_dock(&self, win: Window) -> bool {
+        self.docks.contains(&win)
     }
 
     pub fn switch_workspace<C: Connection>(
@@ -59,17 +70,19 @@ impl WMState {
             return;
         }
 
-        for &win in &self.workspaces[self.current] {
-            if !self.docks.contains(&win) {
-                conn.unmap_window(win).unwrap();
+        let current_windows: Vec<Window> = self.workspaces[self.current].clone();
+        for win in current_windows {
+            if !self.is_dock(win) {
+                conn.unmap_window(win).ok();
             }
         }
 
         self.current = idx;
 
-        for &win in &self.workspaces[self.current] {
-            if !self.docks.contains(&win) {
-                conn.map_window(win).unwrap();
+        let next_windows: Vec<Window> = self.workspaces[self.current].clone();
+        for win in next_windows {
+            if !self.is_dock(win) {
+                conn.map_window(win).ok();
             }
         }
 
@@ -99,7 +112,7 @@ impl WMState {
 
         self.windows_mut().retain(|&w| w != win);
         self.workspaces[idx].push(win);
-        conn.unmap_window(win).unwrap();
+        conn.unmap_window(win).ok();
 
         self.focused = self.windows().first().copied();
         conn.flush().unwrap();

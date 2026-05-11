@@ -3,7 +3,7 @@ border_width = 2
 border_color = "#444444"
 border_focus_color = "#8888ff"
 master_ratio = 0.5
-terminal = "kitty"
+terminal = "st"
 
 autostart = [
     "picom --daemon",
