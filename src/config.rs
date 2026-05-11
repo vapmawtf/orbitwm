@@ -136,8 +136,10 @@ impl Default for BarConfig {
 
 impl Config {
     pub fn load() -> Self {
-        let path = config_path();
+        Self::load_from_path(&config_path())
+    }
 
+    pub fn load_from_path(path: &PathBuf) -> Self {
         if path.as_os_str().is_empty() || !path.exists() {
             println!("No config found, using defaults");
             return Self::default();
@@ -145,7 +147,7 @@ impl Config {
 
         println!("Loading config from {:?}", path);
 
-        let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        let contents = std::fs::read_to_string(path).unwrap_or_else(|e| {
             eprintln!("Failed to read config: {e}");
             String::new()
         });

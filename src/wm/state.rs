@@ -25,7 +25,7 @@ impl WMState {
         Self::default()
     }
 
-    pub fn windows(&self) -> &Vec<Window> {
+    pub fn windows(&self) -> &[Window] {
         &self.workspaces[self.current]
     }
 
@@ -34,10 +34,9 @@ impl WMState {
     }
 
     pub fn add(&mut self, win: Window) {
-        if self.contains(win) {
+        if self.contains(win) || self.is_dock(win) {
             return;
         }
-
         self.windows_mut().push(win);
     }
 
@@ -45,7 +44,6 @@ impl WMState {
         for ws in self.workspaces.iter_mut() {
             ws.retain(|&w| w != win);
         }
-
         if self.focused == Some(win) {
             self.focused = self.windows().first().copied();
         }
@@ -65,57 +63,72 @@ impl WMState {
         root: Window,
         atoms: &crate::x11::atoms::Atoms,
         idx: usize,
-    ) {
+    ) -> Result<(), x11rb::errors::ReplyError> {
         if idx >= WORKSPACE_COUNT || idx == self.current {
-            return;
+            return Ok(());
         }
 
-        let current_windows: Vec<Window> = self.workspaces[self.current].clone();
-        for win in current_windows {
+        // Unmap all non-dock windows in the current workspace
+        for &win in &self.workspaces[self.current] {
             if !self.is_dock(win) {
-                conn.unmap_window(win).ok();
+                conn.unmap_window(win)?;
             }
         }
 
         self.current = idx;
 
-        let next_windows: Vec<Window> = self.workspaces[self.current].clone();
-        for win in next_windows {
+        // Map all non-dock windows in the new workspace
+        for &win in &self.workspaces[self.current] {
             if !self.is_dock(win) {
-                conn.map_window(win).ok();
+                conn.map_window(win)?;
             }
         }
 
-        self.focused = self.workspaces[self.current].first().copied();
+        self.focused = self.windows().first().copied();
 
         x11rb::wrapper::ConnectionExt::change_property32(
-            &conn,
+            conn,
             PropMode::REPLACE,
             root,
             atoms.net_current_desktop,
             AtomEnum::CARDINAL,
             &[idx as u32],
-        )
-        .unwrap();
+        )?;
 
-        conn.flush().unwrap();
+        conn.flush()?;
+        Ok(())
     }
 
-    pub fn move_to_workspace<C: Connection>(&mut self, conn: &C, idx: usize) {
+    pub fn move_to_workspace<C: Connection>(
+        &mut self,
+        conn: &C,
+        idx: usize,
+    ) -> Result<(), x11rb::errors::ReplyError> {
         if idx >= WORKSPACE_COUNT || idx == self.current {
-            return;
+            return Ok(());
         }
 
         let Some(&win) = self.focused_or_first() else {
-            return;
+            return Ok(());
         };
 
+        // Remove from current workspace
         self.windows_mut().retain(|&w| w != win);
+        // Add to target workspace
         self.workspaces[idx].push(win);
-        conn.unmap_window(win).ok();
 
+        // If moving to the current workspace, remap immediately
+        if idx == self.current {
+            conn.map_window(win)?;
+        } else {
+            // Otherwise, unmap (will be remapped when switching to that workspace)
+            conn.unmap_window(win)?;
+        }
+
+        // Update focused window
         self.focused = self.windows().first().copied();
-        conn.flush().unwrap();
+        conn.flush()?;
+        Ok(())
     }
 
     pub fn focused_or_first(&self) -> Option<&Window> {
@@ -124,36 +137,46 @@ impl WMState {
             .or_else(|| self.windows().first())
     }
 
-    pub fn focus_next<C: Connection>(&mut self, conn: &C) {
-        self.shift_focus(conn, 1);
+    pub fn focus_next<C: Connection>(&mut self, conn: &C) -> Result<(), x11rb::errors::ReplyError> {
+        if self.windows().is_empty() {
+            return Ok(());
+        }
+        self.shift_focus(conn, 1)
     }
 
-    pub fn focus_prev<C: Connection>(&mut self, conn: &C) {
-        self.shift_focus(conn, -1);
+    pub fn focus_prev<C: Connection>(&mut self, conn: &C) -> Result<(), x11rb::errors::ReplyError> {
+        if self.windows().is_empty() {
+            return Ok(());
+        }
+        self.shift_focus(conn, -1)
     }
 
-    fn shift_focus<C: Connection>(&mut self, conn: &C, dir: i32) {
-        let len = self.windows().len();
+    fn shift_focus<C: Connection>(
+        &mut self,
+        conn: &C,
+        dir: i32,
+    ) -> Result<(), x11rb::errors::ReplyError> {
+        let windows = self.windows();
+        let len = windows.len();
         if len == 0 {
-            return;
+            return Ok(());
         }
 
         let current = self
             .focused
-            .and_then(|f| self.windows().iter().position(|&w| w == f))
+            .and_then(|f| windows.iter().position(|&w| w == f))
             .unwrap_or(0);
 
         let next = (current as i32 + dir).rem_euclid(len as i32) as usize;
-        let win = self.windows()[next];
+        let win = windows[next];
         self.focused = Some(win);
 
-        conn.set_input_focus(InputFocus::POINTER_ROOT, win, CURRENT_TIME)
-            .unwrap();
+        conn.set_input_focus(InputFocus::POINTER_ROOT, win, CURRENT_TIME)?;
         conn.configure_window(
             win,
             &ConfigureWindowAux::default().stack_mode(StackMode::ABOVE),
-        )
-        .unwrap();
+        )?;
+        Ok(())
     }
 
     pub fn add_dock(&mut self, win: Window) {

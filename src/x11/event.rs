@@ -4,6 +4,7 @@ use crate::wm::state::WMState;
 use crate::x11::atoms::Atoms;
 use crate::x11::ewmh;
 use crate::x11::grab_keys::grab_keys;
+use std::path::PathBuf;
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::*;
@@ -15,6 +16,9 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
     let width = screen.width_in_pixels as u32;
     let height = screen.height_in_pixels as u32;
     let atoms = Atoms::init(&conn);
+    let config_path = config_path();
+    let mut live_config = config.clone();
+    let mut last_config_modified = config_path.metadata().and_then(|meta| meta.modified()).ok();
 
     conn.change_window_attributes(
         root,
@@ -35,6 +39,17 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
     conn.flush().unwrap();
 
     loop {
+        if let Ok(metadata) = config_path.metadata() {
+            let modified = metadata.modified().ok();
+            if modified != last_config_modified {
+                live_config = Config::load_from_path(&config_path);
+                last_config_modified = modified;
+                grab_keys(&conn, root, &live_config);
+                wm::layout::apply_layout(&conn, state, width, height, &live_config);
+                conn.flush().ok();
+            }
+        }
+
         let event = match conn.wait_for_event() {
             Ok(e) => e,
             Err(e) => {
@@ -75,7 +90,14 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
                 )
                 .ok();
 
+                // First, map the window
                 conn.map_window(e.window).ok();
+                conn.flush().ok(); // Force X11 to process the map
+
+                // Small delay to let X11 catch up (in production, use XSync)
+                std::thread::sleep(std::time::Duration::from_millis(5));
+
+                // Then add to state and apply layout
                 state.add(e.window);
                 wm::layout::apply_layout(&conn, state, width, height, config);
                 conn.flush().ok();
@@ -180,19 +202,42 @@ pub fn start_x11_wm(config: &Config, state: &mut WMState) {
             }
 
             Event::KeyPress(e) => {
-                wm::keys::handle_key(&conn, state, &e, root, width, height, config, &atoms);
+                wm::keys::handle_key(&conn, state, &e, root, width, height, &live_config, &atoms);
             }
 
             Event::ClientMessage(e) => {
                 if e.type_ == atoms.net_current_desktop {
                     let idx = e.data.as_data32()[0] as usize;
-                    state.switch_workspace(&conn, root, &atoms, idx);
+                    let _ = state.switch_workspace(&conn, root, &atoms, idx);
                 }
             }
 
             _ => {}
         }
     }
+}
+
+fn config_path() -> PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let path = PathBuf::from(xdg).join("orbitwm/config.toml");
+        if path.exists() {
+            return path;
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let path = PathBuf::from(home).join(".config/orbitwm/config.toml");
+        if path.exists() {
+            return path;
+        }
+    }
+
+    let system = PathBuf::from("/etc/orbitwm/config.toml");
+    if system.exists() {
+        return system;
+    }
+
+    PathBuf::from("")
 }
 
 fn get_window_class<C: Connection>(conn: &C, window: Window) -> String {
