@@ -10,7 +10,7 @@ autostart = [
     "feh --bg-fill /home/vapma/.walls/53db35e5cb12dd475517003dbf72440b.jpg ",
     "nm-applet --indicator",
     "blueman-applet",
-    "polybar",
+    "/home/vapma/.config/polybar/launch.sh",
 ]
 
 [keybinds]

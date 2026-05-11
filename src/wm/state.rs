@@ -6,6 +6,7 @@ pub struct WMState {
     pub workspaces: [Vec<Window>; WORKSPACE_COUNT],
     pub current: usize,
     pub focused: Option<Window>,
+    pub docks: Vec<Window>,
 }
 
 impl Default for WMState {
@@ -14,6 +15,7 @@ impl Default for WMState {
             workspaces: std::array::from_fn(|_| Vec::new()),
             current: 0,
             focused: None,
+            docks: Vec::new(),
         }
     }
 }
@@ -46,22 +48,43 @@ impl WMState {
         }
     }
 
-    pub fn switch_workspace<C: Connection>(&mut self, conn: &C, idx: usize) {
+    pub fn switch_workspace<C: Connection>(
+        &mut self,
+        conn: &C,
+        root: Window,
+        atoms: &crate::x11::atoms::Atoms,
+        idx: usize,
+    ) {
         if idx >= WORKSPACE_COUNT || idx == self.current {
             return;
         }
 
-        for &win in self.windows() {
-            conn.unmap_window(win).unwrap();
+        for &win in &self.workspaces[self.current] {
+            if !self.docks.contains(&win) {
+                conn.unmap_window(win).unwrap();
+            }
         }
 
         self.current = idx;
 
-        for &win in self.windows() {
-            conn.map_window(win).unwrap();
+        for &win in &self.workspaces[self.current] {
+            if !self.docks.contains(&win) {
+                conn.map_window(win).unwrap();
+            }
         }
 
-        self.focused = self.windows().first().copied();
+        self.focused = self.workspaces[self.current].first().copied();
+
+        x11rb::wrapper::ConnectionExt::change_property32(
+            &conn,
+            PropMode::REPLACE,
+            root,
+            atoms.net_current_desktop,
+            AtomEnum::CARDINAL,
+            &[idx as u32],
+        )
+        .unwrap();
+
         conn.flush().unwrap();
     }
 
@@ -118,5 +141,11 @@ impl WMState {
             &ConfigureWindowAux::default().stack_mode(StackMode::ABOVE),
         )
         .unwrap();
+    }
+
+    pub fn add_dock(&mut self, win: Window) {
+        if !self.docks.contains(&win) {
+            self.docks.push(win);
+        }
     }
 }

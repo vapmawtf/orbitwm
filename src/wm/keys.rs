@@ -3,6 +3,7 @@ use x11rb::{connection::Connection, protocol::xproto::*};
 use crate::config::Config;
 use crate::wm::layout::apply_layout;
 use crate::wm::state::WMState;
+use crate::x11::atoms::Atoms;
 
 pub const MOD_KEY: u16 = 0x0040;
 
@@ -10,9 +11,11 @@ pub fn handle_key<C: Connection>(
     conn: &C,
     wm: &mut WMState,
     event: &KeyPressEvent,
+    root: Window,
     width: u32,
     height: u32,
     config: &Config,
+    atoms: &Atoms,
 ) {
     let modmask = u16::from(event.state) & 0x00FF;
     let keycode = event.detail;
@@ -28,7 +31,7 @@ pub fn handle_key<C: Connection>(
             conn.flush().unwrap();
             return;
         } else if modmask == switch_mod {
-            wm.switch_workspace(conn, idx);
+            wm.switch_workspace(conn, root, atoms, idx);
             apply_layout(conn, wm, width, height, config);
             conn.flush().unwrap();
             return;
@@ -63,7 +66,9 @@ pub fn handle_key<C: Connection>(
         );
     } else {
         // custom keybindy
-        handle_custom(conn, wm, modmask, keycode, width, height, config);
+        handle_custom(
+            conn, wm, modmask, keycode, root, width, height, config, atoms,
+        );
     }
 }
 
@@ -72,9 +77,11 @@ fn handle_custom<C: Connection>(
     wm: &mut WMState,
     modmask: u16,
     keycode: u8,
+    root: Window,
     width: u32,
     height: u32,
     config: &Config,
+    atoms: &Atoms,
 ) {
     let display = std::env::var("DISPLAY").unwrap_or(":0".to_string());
 
@@ -97,7 +104,7 @@ fn handle_custom<C: Connection>(
             "workspace" => {
                 if let Ok(idx) = arg.parse::<usize>() {
                     if idx >= 1 {
-                        wm.switch_workspace(conn, idx - 1);
+                        wm.switch_workspace(conn, root, atoms, idx - 1);
                         apply_layout(conn, wm, width, height, config);
                         conn.flush().unwrap();
                     }

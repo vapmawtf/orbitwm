@@ -19,7 +19,7 @@ impl ClockWidget {
         Align::Right
     }
 
-    fn update_time(&mut self) {
+    pub fn update_time(&mut self) {
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
